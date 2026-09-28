@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII-RAT: Escape from Zombie</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 12px;
+    background: #0b0b0b;
+    color: #e6e6e6;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.35;
+    min-height: 100vh;
+  }
+  #app {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  .screen {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .header {
+    color: #4ade80;
+    border-bottom: 1px dashed #333;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    white-space: pre;
+  }
+  .art { color: #c084fc; }
+  .art-red { color: #f87171; }
+  .art-yellow { color: #facc15; }
+  .art-blue { color: #60a5fa; }
+  .art-cyan { color: #22d3ee; }
+  .morse { color: #22d3ee; }
+  .bold { font-weight: bold; }
+  .muted { color: #888; }
+  .buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  button {
+    flex: 1 1 200px;
+    padding: 12px 14px;
+    background: #1f2937;
+    color: #e6e6e6;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover, button:focus {
+    background: #374151;
+    outline: none;
+  }
+  button.green { border-color: #4ade80; }
+  button.blue  { border-color: #60a5fa; }
+  button.primary {
+    background: #166534;
+    border-color: #4ade80;
+  }
+  button.primary:hover { background: #15803d; }
+  .status {
+    color: #f87171;
+    margin: 8px 0;
+    white-space: pre;
+  }
+  .bar {
+    color: #4ade80;
+    white-space: pre;
+  }
+  .hint {
+    color: #facc15;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="screen" id="screen"></div>
+  <div class="buttons" id="buttons"></div>
+  <div class="hint" id="hint"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   РУССКАЯ АЗБУКА МОРЗЕ
+   ============================================================ */
+const MORSE_RU = {
+  "А":".-",     "Б":"-...",   "В":".--",    "Г":"--.",
+  "Д":"-..",    "Е":".",      "Ж":"...-",   "З":"--..",
+  "И":"..",     "Й":".---",   "К":"-.-",    "Л":".-..",
+  "М":"--",     "Н":"-.",     "О":"---",    "П":".--.",
+  "Р":".-.",    "С":"...",    "Т":"-",      "У":"..-",
+  "Ф":"..-.",   "Х":"....",   "Ц":"-.-.",   "Ч":"---.",
+  "Ш":"----",   "Щ":"--.-",   "Ъ":"--.--",  "Ы":"-.--",
+  "Ь":"-..-",   "Э":"..-..",  "Ю":"..--",   "Я":".-.-",
+  "Ё":".",      "0":"-----",  "1":".----",  "2":"..---",
+  "3":"...--",  "4":"....-",  "5":".....",  "6":"-....",
+  "7":"--...",  "8":"---..",  "9":"----.",
+  ".":".-.-.-", ",":"--..--", "?":"..--..", "!":"-.-.--",
+  ":":"---...", ";":"-.-.-.", "-":"-....-", "/":"-..-.",
+  "(":"-.--.",  ")":"-.--.-", "'":".----.", '"':".-..-.",
+  "=":"-...-",  "+":".-.-.",  "@":".--.-."
+};
+
+function morseText(text) {
+  // Разбиваем на слова, каждое слово — на буквы.
+  return text.split(/\s+/).filter(Boolean).map(word => {
+    return [...word.toUpperCase()].map(ch => MORSE_RU[ch] || "?").join(" ");
+  }).join(" / ");
+}
+
+/* ============================================================
+   ПЕРЕВОДЫ (EN / RU)
+   ============================================================ */
+const L = {
+  en: {
+    langName: "ENGLISH",
+    title: "ASCII-RAT: ESCAPE FROM ZOMBIE",
+    rulesTitle: "RULES",
+    rules: [
+      "You are a rat running from a zombie.",
+      "On each sign you must answer a question.",
+      "Answer by jumping:",
+      "  <- short jump (left)",
+      "  -> long jump (right)",
+      "Correct answer: run further.",
+      "Wrong answer: zombie gets closer.",
+      "In a browser you can use arrow keys or buttons."
+    ],
+    chooseLang: "CHOOSE LANGUAGE / ВЫБЕРИ ЯЗЫК",
+    start: "START",
+    next: "NEXT",
+    left: "LEFT (short jump)",
+    right: "RIGHT (long jump)",
+    yes: "YES",
+    no: "NO",
+    zombieDist: (d) => `[ DISTANCE TO ZOMBIE: ${d} m ]`,
+    scenes: {
+      intro: [
+        "You are a rat. You are running. A zombie is behind you."
+      ],
+      s1q: "Where is the cheese?",
+      s1a: "Cheese is on the table",
+      s1b: "Cheese is in the hole",
+      s1ok: "Jump onto the table. Cheese found.",
+      s1bad: "Jump missed. Zombie is closer.",
+      s2q: "You must drag the half-eaten cheese to the hole. Which way?",
+      s2a: "Left, to the hole",
+      s2b: "Right, to the crossroads",
+      s2ok: "You drag the cheese to the hole. Almost home.",
+      s2bad: "Crossroads. The zombie shuffles nearby.",
+      s3: "Suddenly a raven attacks and takes the cheese.",
+      s3q: "What do you do?",
+      s3a: "Write RUN in Morse and run home",
+      s3b: "Fight the raven: time a BITE",
+      s3ok: "You tap Morse with your paws and run home.",
+      s3bite: "BITE! You fight it off and eat the raven.",
+      s3miss: "Miss. The raven escapes with the cheese.",
+      s4: "You are not a rat. You are a human. Return to your human form.",
+      s5: "You find a chicken feather on the floor.",
+      s5b: "You understand the path leads to the great city GOROKUR.",
+      s5c: "But instead of GOROKUR you reach an abandoned farm.",
+      s6: "ROOSTER GUARDS: Stop! Say the password.",
+      s6notebook: "Use the notebook?",
+      s6page: "On the page is written:",
+      s6ok: "The roosters step aside. You enter.",
+      s6bad: "The roosters are unhappy, but let you in.",
+      s7q: "It is dark in the henhouse. What do you do?",
+      s7a: "Start threatening everyone",
+      s7b: "Quietly sit next to the cat",
+      s7threat: "You start threatening. Kicked out to the street.",
+      s7pawn: "You notice a chess pawn in the raven's claws.",
+      s7cat: "The cat whispers: Find the pawn-eater hen.",
+      s10q: "You need a bite. Cheese or chicken?",
+      s10a: "Cheese",
+      s10b: "Chicken",
+      endCheese: "END: cheese poisoning.",
+      endBasement: "END: henhouse basement.",
+      theEnd: "THE END"
+    }
+  },
+  ru: {
+    langName: "MORSE",
+    title: "ASCII-КРЫСА: ПОБЕГ ОТ ЗОМБИ",
+    rulesTitle: "ПРАВИЛА",
+    rules: [
+      "ТЫ КРЫСА БЕЖИШЬ ОТ ЗОМБИ",
+      "НА КАЖДОЙ ТАБЛИЧКЕ ВОПРОС",
+      "ОТВЕТ ВЫБИРАЕТСЯ ПРЫЖКОМ",
+      "КОРОТКИЙ ПРЫЖОК ВЛЕВО",
+      "ДЛИННЫЙ ПРЫЖОК ВПРАВО",
+      "ОТВЕТИШЬ ВЕРНО БЕЖИШЬ ДАЛЬШЕ",
+      "ОШИБЁШЬСЯ ЗОМБИ БЛИЖЕ",
+      "В БРАУЗЕРЕ МОЖНО ЖАТЬ СТРЕЛКИ ИЛИ КНОПКИ"
+    ],
+    chooseLang: "ВЫБЕРИ ЯЗЫК",
+    start: "НАЧАТЬ",
+    next: "ДАЛЕЕ",
+    left: "ВЛЕВО (короткий прыжок)",
+    right: "ВПРАВО (длинный прыжок)",
+    yes: "ДА",
+    no: "НЕТ",
+    zombieDist: (d) => `[ ДИСТАНЦИЯ ДО ЗОМБИ: ${d} М ]`,
+    scenes: {
+      intro: [
+        "ТЫ КРЫСА ТЫ БЕЖИШЬ ЗА ТОБОЙ ЗОМБИ"
+      ],
+      s1q: "ГДЕ СЫР",
+      s1a: "СЫР НА СТОЛЕ",
+      s1b: "СЫР В НОРЕ",
+      s1ok: "ПРЫЖОК НА СТОЛ СЫР НАЙДЕН",
+      s1bad: "ПРЫЖОК МИМО ЗОМБИ БЛИЖЕ",
+      s2q: "НЕДОЕДЕННЫЙ СЫР НАДО ДОТАЩИТЬ ДО НОРЫ КУДА ИДТИ",
+      s2a: "НАЛЕВО К НОРЕ",
+      s2b: "НАПРАВО К РАСПУТЬЮ",
+      s2ok: "ТЫ ТАЩИШЬ СЫР К НОРЕ ПОЧТИ ДОМА",
+      s2bad: "РАСПУТЬЕ ЗОМБИ ШАРКАЕТ РЯДОМ",
+      s3: "ВНЕЗАПНО НАПАДАЕТ ВОРОНА ВОРОНА ЗАБИРАЕТ КУСОК СЫРА",
+      s3q: "ЧТО ДЕЛАТЬ",
+      s3a: "НА АЗБУКЕ МОРЗЕ НАПИСАТЬ БЕЖАТЬ И БЕЖАТЬ ДОМОЙ",
+      s3b: "НАПАСТЬ НА ВОРОНУ НА ВРЕМЯ ОТВЕТИТЬ УКУС",
+      s3ok: "ТЫ СТРОЧИШЬ ЛАПКАМИ МОРЗЯНКУ И УЛЕПЁТЫВАЕШЬ",
+      s3bite: "УКУС ТЫ ОТБИВАЕШЬСЯ И ЕШЬ ВОРОНУ",
+      s3miss: "ПРОМАХ ВОРОНА ВЫРЫВАЕТ СЫР И УЛЕТАЕТ",
+      s4: "ТЫ НЕ КРЫСА ТЫ ЧЕЛОВЕК ВЕРНИСЬ В ЧЕЛОВЕЧЕСКУЮ ФОРМУ",
+      s5: "НА ПОЛУ КУРИНОЕ ПЕРО",
+      s5b: "ТЫ ПОНИМАЕШЬ ПУТЬ ВЕДЁТ В ВЕЛИЧЕСТВЕННЫЙ ГОРОД ГОРОКУР",
+      s5c: "НО ВМЕСТО ГОРОКУРА ТЫ ПРИХОДИШЬ НА ЗАБРОШЕННУЮ ФЕРМУ",
+      s6: "ПЕТУХИ СТРАЖНИКИ СТОЙ НАЗОВИ ПАРОЛЬ",
+      s6notebook: "ИСПОЛЬЗОВАТЬ БЛОКНОТ",
+      s6page: "НА СТРАНИЦЕ НАПИСАНО",
+      s6ok: "ПЕТУХИ РАССТУПАЮТСЯ ТЫ ВХОДИШЬ",
+      s6bad: "ПЕТУХИ НЕДОВОЛЬНЫ НО ПРОПУСКАЮТ",
+      s7q: "В КУРЯТНИКЕ ТЕМНО ЧТО ДЕЛАТЬ",
+      s7a: "НАЧАТЬ УГРОЖАТЬ ВСЕМ",
+      s7b: "ТИХО ПОДСЕСТЬ К КОТУ В ТЁМНОМ УГЛУ",
+      s7threat: "ТЫ НАЧИНАЕШЬ УГРОЖАТЬ ТЕБЯ ВЫГОНЯЮТ",
+      s7pawn: "НО ТЫ УСПЕВАЕШЬ ЗАМЕТИТЬ В ЛАПАХ У НЕЁ ПЕШКА",
+      s7cat: "КОТ ШЕПЧЕТ ИЩИ СТРАННУЮ КУРУ",
+      s10q: "ТЫ ДОЛЖНА ПЕРЕКУСИТЬ СЫР ИЛИ КУРИЦА",
+      s10a: "СЫР",
+      s10b: "КУРИЦА",
+      endCheese: "КОНЕЦ ОТРАВЛЕНИЕ СЫРОМ",
+      endBasement: "КОНЕЦ ПОДВАЛ КУРЯТНИКА",
+      theEnd: "КОНЕЦ"
+    }
+  }
+};
+
+/* ============================================================
+   ASCII-АРТЫ
+   ============================================================ */
+const ART = {
+  rat: `<span class="art">            .--.
+           /    \\
+          | o  o |
+          |  &lt;&gt;  |
+          |  --  |
+     .---.'      '.---.
+    /   /          \\   \\
+   (   (    RAT     )   )
+    \\   \\          /   /
+     '---'--------'---'
+         |  |    |  |</span>`,
+
+  zombie: `<span class="art-red">        _____
+       /     \\
+      | () () |
+      |   __   |
+      |  /  \\  |
+       \\_____/
+      /| ZOMBIE|\\
+     / |       | \\
+       |       |
+      /         \\</span>`,
+
+  cheese: `<span class="art-yellow">        ________
+       /       /|
+      /  o    / |
+     /     o /  |
+    /  o    /   |
+   /_______/____|</span>`,
+
+  hole: `<span class="art-blue">      ___________
+     /           \\
+    /   .     .   \\
+   |  (O)   (O)   |
+    \\             /
+     \\___________/</span>`,
+
+  table: `<span class="art-cyan">    ______________
+   |              |
+   |   [CHEESE]   |
+   |______________|
+       |      |
+       |      |</span>`,
+
+  raven: `<span class="art-red">           __
+          / _ )
+     .--./ /
+    /    \\/
+   |  o o  |
+    \\  ^  /
+     |||||
+    /     \\</span>`,
+
+  feather: `<span class="art-cyan">           /\\
+          /  \\
+         /    \\
+        /______\\
+          ||||</span>`,
+
+  city: `<span class="art-blue">       _   _   _
+      | |_| |_| |
+      |         |
+      |  _   _  |
+      |_|_|_|_|_|
+        GOROKUR</span>`,
+
+  farm: `<span class="art-yellow">     ______________________
+    /  [ ABANDONED FARM ]  /|
+   /______________________/ |
+   |  ___    ___          | /
+   | |___|  |___|         |/
+   |______________________|</span>`,
+
+  roosters: `<span class="art-red">    / _)   / _)   / _)
+   | o o | | o o | | o o |
+    \\ ^ /   \\ ^ /   \\ ^ /</span>`,
+
+  cat: `<span class="art">       /\\_/\\
+      ( o.o )
+       > ^ <   [DARK CAT]</span>`,
+
+  chicken: `<span class="art-yellow">        __
+       / _)
+      | o o |
+       \\ ^ /
+       |||||</span>`,
+
+  pawn: `<span class="bold">        ( )
+       /   \\
+      |_____|
+      /_____\\</span>`,
+
+  cheeseRot: `<span class="art-red">        ________
+       / X   X /|
+      /  POISON /
+     /_________/</span>`,
+
+  basement: `<span class="art-red">    _________________
+   |   HENHOUSE      |
+   |   BASEMENT      | [BARS]
+   |_________________|</span>`
+};
+
+/* ============================================================
+   СОСТОЯНИЕ ИГРЫ
+   ============================================================ */
+const state = {
+  lang: "en",       // "en" или "ru"
+  zombie: 20,
+  screen: "menu",   // menu | rules | scene
+  sceneIndex: 0,
+  ravenBitten: false
+};
+
+const screenEl = document.getElementById("screen");
+const buttonsEl = document.getElementById("buttons");
+const hintEl = document.getElementById("hint");
+
+/* ---------- утилиты ---------- */
+function getText(key) {
+  return L[state.lang].scenes[key];
+}
+
+function renderScreen(html) {
+  screenEl.innerHTML = html;
+}
+
+function renderButtons(items) {
+  buttonsEl.innerHTML = "";
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.textContent = it.label;
+    if (it.cls) b.className = it.cls;
+    b.onclick = it.action;
+    buttonsEl.appendChild(b);
+  }
+}
+
+function renderHint(text) {
+  hintEl.textContent = text || "";
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function morseOrText(text) {
+  if (state.lang === "ru") {
+    return `<span class="morse">${esc(morseText(text))}</span>`;
+  }
+  return esc(text);
+}
+
+function morseBlock(text) {
+  return `<span class="morse">${esc(morseText(text))}</span>`;
+}
+
+function header(title) {
+  return `<div class="header">+==========================================================+
+  ${esc(title)}
++==========================================================+</div>`;
+}
+
+function statusBar() {
+  let d = Math.max(0, Math.min(40, state.zombie));
+  const cells = 20;
+  let bar = "";
+  for (let i = 0; i < cells; i++) {
+    if (i < Math.floor(d / 2)) bar += "=";
+    else if (i === Math.floor(d / 2)) bar += "Z";
+    else bar += " ";
+  }
+  return `<div class="status">${esc(L[state.lang].zombieDist(d))}</div>` +
+         `<div class="bar">[${bar}]</div>`;
+}
+
+/* ============================================================
+   ЭКРАН: МЕНЮ ЯЗЫКА
+   ============================================================ */
+function showMenu() {
+  state.screen = "menu";
+  const items = [
+    { label: "ENGLISH", action: () => { state.lang = "en"; showRules(); } },
+    { label: "MORSE / МОРЗЕ", action: () => { state.lang = "ru"; showRules(); } }
+  ];
+
+  renderScreen(
+    header("A S C I I   R A T   Q U E S T") +
+    `\n   ${esc(L.en.chooseLang)}\n\n` +
+    `   > ${esc(L.en.langName)}\n` +
+    `     ${morseBlock("РУССКАЯ МОРЗЯНКА")}\n`
+  );
+  renderButtons(items);
+  renderHint("Нажми кнопку, чтобы выбрать язык / Choose a language");
+}
+
+/* ============================================================
+   ЭКРАН: ПРАВИЛА
+   ============================================================ */
+function showRules() {
+  state.screen = "rules";
+  const t = L[state.lang];
+  const rulesText = t.rules.map(r =>
+    state.lang === "ru" ? morseBlock(r) : esc(r)
+  ).join("\n");
+
+  renderScreen(
+    header(t.rulesTitle) + "\n" + rulesText + "\n"
+  );
+  renderButtons([
+    { label: t.start, cls: "primary", action: () => startGame() }
+  ]);
+  renderHint("Стрелки ← / → или кнопки. Enter — далее.");
+}
+
+/* ============================================================
+   ДВИЖОК СЦЕН
+   ============================================================ */
+let sceneQueue = [];
+
+function pushScene(fn) {
+  sceneQueue.push(fn);
+}
+
+function nextScene() {
+  if (sceneQueue.length === 0) {
+    showMenu();
+    return;
+  }
+  const fn = sceneQueue.shift();
+  fn();
+}
+
+function startGame() {
+  state.zombie = 20;
+  state.ravenBitten = false;
+  sceneQueue = [];
+  pushScene(sceneIntro);
+  pushScene(scene1);
+  pushScene(scene2);
+  pushScene(scene3);
+  pushScene(scene4);
+  pushScene(scene5);
+  pushScene(scene6);
+  pushScene(scene7);
+  pushScene(scene10);
+  nextScene();
+}
+
+/* Общий помощник: показать текст + кнопку NEXT */
+function showText(html, onNext) {
+  renderScreen(html);
+  renderButtons([
+    { label: L[state.lang].next, cls: "primary", action: onNext }
+  ]);
+}
+
+/* Общий помощник: вопрос с двумя вариантами */
+function showQuestion({ title, art, question, a, b, onLeft, onRight }) {
+  const t = L[state.lang];
+  let qHtml = state.lang === "ru" ? morseBlock(question) : esc(question);
+  let aHtml = state.lang === "ru" ? morseBlock(a) : esc(a);
+  let bHtml = state.lang === "ru" ? morseBlock(b) : esc(b);
+
+  renderScreen(
+    header(title || "SIGN / ТАБЛИЧКА") +
+    (art ? "\n" + art + "\n" : "\n") +
+    statusBar() +
+    "\n" + qHtml + "\n\n" +
+    `  [ <- ] ${aHtml}\n` +
+    `  [ -> ] ${bHtml}\n`
+  );
+  renderButtons([
+    { label: t.left,  cls: "green", action: onLeft  },
+    { label: t.right, cls: "blue",  action: onRight }
+  ]);
+  renderHint("Стрелки ← / → или кнопки");
+}
+
+/* ---------- интро ---------- */
+function sceneIntro() {
+  state.screen = "scene";
+  const t = L[state.lang];
+  const text = t.scenes.intro.map(s =>
+    state.lang === "ru" ? morseBlock(s) : esc(s)
+  ).join("\n");
+
+  showText(
+    header(state.lang === "en" ? t.title : morseBlock(t.title)) +
+    "\n" + ART.rat + "\n" + text + "\n" + ART.zombie + "\n",
+    () => nextScene()
+  );
+}
+
+/* ---------- сцена 1 ---------- */
+function scene1() {
+  state.screen = "scene";
+  const t = L[state.lang];
+  showQuestion({
+    title: state.lang === "en" ? "SCENE 1" : "СЦЕНА 1",
+    art: ART.table,
+    question: t.scenes.s1q,
+    a: t.scenes.s1a,
+    b: t.scenes.s1b,
+    onLeft: () => {
+      state.zombie += 5;
+      showText(
+        ART.cheese + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s1ok) : esc(t.scenes.s1ok)) + "\n" +
+        statusBar(),
+        () => nextScene()
+      );
+    },
+    onRight: () => {
+      state.zombie -= 5;
+      showText(
+        ART.hole + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s1bad) : esc(t.scenes.s1bad)) + "\n" +
+        statusBar(),
+        () => nextScene()
+      );
+    }
+  });
+}
+
+/* ---------- сцена 2 ---------- */
+function scene2() {
+  const t = L[state.lang];
+  showQuestion({
+    title: state.lang === "en" ? "SCENE 2" : "СЦЕНА 2",
+    art: ART.rat,
+    question: t.scenes.s2q,
+    a: t.scenes.s2a,
+    b: t.scenes.s2b,
+    onLeft: () => {
+      showText(
+        ART.hole + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s2ok) : esc(t.scenes.s2ok)),
+        () => nextScene()
+      );
+    },
+    onRight: () => {
+      state.zombie -= 4;
+      showText(
+        (state.lang === "ru" ? morseBlock(t.scenes.s2bad) : esc(t.scenes.s2bad)) + "\n" +
+        statusBar(),
+        () => nextScene()
+      );
+    }
+  });
+}
+
+/* ---------- сцена 3 ---------- */
+function scene3() {
+  const t = L[state.lang];
+  showText(
+    ART.raven + "\n" +
+    (state.lang === "ru" ? morseBlock(t.scenes.s3) : esc(t.scenes.s3)),
+    () => {
+      showQuestion({
+        title: state.lang === "en" ? "SCENE 3" : "СЦЕНА 3",
+        art: ART.raven,
+        question: t.scenes.s3q,
+        a: t.scenes.s3a,
+        b: t.scenes.s3b,
+        onLeft: () => {
+          showText(
+            (state.lang === "ru" ? morseBlock("МОРЗЕ") : esc("MORSE:")) + "\n" +
+            morseBlock("БЕЖАТЬ ДОМОЙ") + "\n" +
+            (state.lang === "ru" ? morseBlock(t.scenes.s3ok) : esc(t.scenes.s3ok)),
+            () => nextScene()
+          );
+        },
+        onRight: () => {
+          const r = Math.floor(Math.random() * 100);
+          if (r < 55) {
+            state.ravenBitten = true;
+            showText(
+              ART.raven + "\n" +
+              (state.lang === "ru" ? morseBlock(t.scenes.s3bite) : esc(t.scenes.s3bite)),
+              () => nextScene()
+            );
+          } else {
+            state.zombie -= 6;
+            showText(
+              ART.raven + "\n" +
+              (state.lang === "ru" ? morseBlock(t.scenes.s3miss) : esc(t.scenes.s3miss)) + "\n" +
+              statusBar(),
+              () => nextScene()
+            );
+          }
+        }
+      });
+    }
+  );
+}
+
+/* ---------- сцена 4 ---------- */
+function scene4() {
+  const t = L[state.lang];
+  showText(
+    ART.rat + "\n" +
+    (state.lang === "ru" ? morseBlock(t.scenes.s4) : esc(t.scenes.s4)),
+    () => nextScene()
+  );
+}
+
+/* ---------- сцена 5 ---------- */
+function scene5() {
+  const t = L[state.lang];
+  showText(
+    ART.feather + "\n" +
+    (state.lang === "ru" ? morseBlock(t.scenes.s5) : esc(t.scenes.s5)),
+    () => {
+      showText(
+        ART.city + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s5b) : esc(t.scenes.s5b)),
+        () => {
+          showText(
+            ART.farm + "\n" + ART.chicken + "\n" +
+            (state.lang === "ru" ? morseBlock(t.scenes.s5c) : esc(t.scenes.s5c)),
+            () => nextScene()
+          );
+        }
+      );
+    }
+  );
+}
+
+/* ---------- сцена 6 (пароль) ---------- */
+function scene6() {
+  const t = L[state.lang];
+  const prompt = state.lang === "ru"
+    ? morseBlock(t.scenes.s6) + "\n\n" + morseBlock(t.scenes.s6notebook) + "?"
+    : esc(t.scenes.s6) + "\n\n" + esc(t.scenes.s6notebook) + "?";
+
+  renderScreen(
+    header(state.lang === "en" ? "SCENE 6" : "СЦЕНА 6") +
+    "\n" + ART.roosters + "\n" +
+    statusBar() + "\n" + prompt
+  );
+  renderButtons([
+    { label: L[state.lang].yes, cls: "primary", action: () => {
+      showText(
+        (state.lang === "ru" ? morseBlock(t.scenes.s6page) : esc(t.scenes.s6page)) + "\n" +
+        morseBlock("КУРЯТИНА"),
+        () => {
+          showText(
+            ART.roosters + "\n" +
+            (state.lang === "ru" ? morseBlock(t.scenes.s6ok) : esc(t.scenes.s6ok)),
+            () => nextScene()
+          );
+        }
+      );
+    }},
+    { label: L[state.lang].no, action: () => {
+      showText(
+        ART.roosters + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s6bad) : esc(t.scenes.s6bad)),
+        () => nextScene()
+      );
+    }}
+  ]);
+}
+
+/* ---------- сцена 7 (курятник) ---------- */
+function scene7() {
+  const t = L[state.lang];
+  showQuestion({
+    title: state.lang === "en" ? "SCENE 7" : "СЦЕНА 7",
+    art: ART.cat + "\n" + ART.chicken,
+    question: t.scenes.s7q,
+    a: t.scenes.s7a,
+    b: t.scenes.s7b,
+    onLeft: () => {
+      showText(
+        ART.roosters + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s7threat) : esc(t.scenes.s7threat)),
+        () => {
+          showText(
+            ART.pawn + "\n" +
+            (state.lang === "ru" ? morseBlock(t.scenes.s7pawn) : esc(t.scenes.s7pawn)),
+            () => nextScene()
+          );
+        }
+      );
+    },
+    onRight: () => {
+      showText(
+        ART.cat + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.s7cat) : esc(t.scenes.s7cat)),
+        () => nextScene()
+      );
+    }
+  });
+}
+
+/* ---------- сцена 10 (перекус) ---------- */
+function scene10() {
+  const t = L[state.lang];
+  showQuestion({
+    title: state.lang === "en" ? "SCENE 10" : "СЦЕНА 10",
+    art: ART.cheese + "\n" + ART.chicken,
+    question: t.scenes.s10q,
+    a: t.scenes.s10a,
+    b: t.scenes.s10b,
+    onLeft: () => {
+      showText(
+        ART.cheeseRot + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.endCheese) : esc(t.scenes.endCheese)) + "\n\n" +
+        boldText(t.scenes.theEnd),
+        () => showMenu()
+      );
+    },
+    onRight: () => {
+      showText(
+        ART.basement + "\n" +
+        (state.lang === "ru" ? morseBlock(t.scenes.endBasement) : esc(t.scenes.endBasement)) + "\n\n" +
+        boldText(t.scenes.theEnd),
+        () => showMenu()
+      );
+    }
+  });
+}
+
+function boldText(s) {
+  if (state.lang === "ru") return morseBlock(s);
+  return `<span class="bold">${esc(s)}</span>`;
+}
+
+/* ============================================================
+   УПРАВЛЕНИЕ С КЛАВИАТУРЫ
+   ============================================================ */
+document.addEventListener("keydown", (e) => {
+  // В меню: стрелки влево/вправо выбирают, Enter — старт.
+  if (state.screen === "menu") {
+    if (e.key === "Enter") {
+      // по умолчанию выбираем первый вариант — English
+      document.querySelector("#buttons button").click();
+    }
+    return;
+  }
+  if (state.screen === "rules") {
+    if (e.key === "Enter") {
+      document.querySelector("#buttons button").click();
+    }
+    return;
+  }
+  // В сценах: стрелки — как кнопки.
+  if (e.key === "ArrowLeft") {
+    const btns = document.querySelectorAll("#buttons button");
+    if (btns[0]) btns[0].click();
+  } else if (e.key === "ArrowRight") {
+    const btns = document.querySelectorAll("#buttons button");
+    if (btns[1]) btns[1].click();
+    else if (btns[0]) btns[0].click();
+  } else if (e.key === "Enter") {
+    const btns = document.querySelectorAll("#buttons button");
+    if (btns[0]) btns[0].click();
+  }
+});
+
+/* ============================================================
+   СТАРТ
+   ============================================================ */
+showMenu();
+</script>
+</body>
+</html>
